@@ -339,6 +339,26 @@ class Database {
         });
     }
 
+    async updateTransaction(id, kodeProduk, tujuan, nominal, pin) {
+        return new Promise((resolve, reject) => {
+            const stmt = this.db.prepare(`
+                UPDATE transactions 
+                SET kode_produk = ?, tujuan = ?, nominal = ?, pin = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            `);
+            
+            stmt.run([kodeProduk, tujuan, nominal, pin, id], function(err) {
+                if (err) {
+                    reject(err);
+                } else {
+                    resolve(this.changes);
+                }
+            });
+            
+            stmt.finalize();
+        });
+    }
+
     async deleteTransaction(id) {
         return new Promise((resolve, reject) => {
             const stmt = this.db.prepare(`DELETE FROM transactions WHERE id = ?`);

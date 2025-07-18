@@ -29,6 +29,88 @@ let connectionStatus = 'disconnected';
 
 console.log('Variables initialized');
 
+// Function to check and auto-reconnect WhatsApp
+async function autoReconnectWhatsApp() {
+    try {
+        const fs = require('fs');
+        const path = require('path');
+        const sessionsDir = path.join(__dirname, 'sessions');
+        
+        // Check if sessions directory exists and has session files
+        if (fs.existsSync(sessionsDir)) {
+            const files = fs.readdirSync(sessionsDir);
+            const hasSessionFiles = files.some(file => 
+                file.includes('creds.json') || 
+                file.includes('session-') || 
+                file.includes('app-state-sync')
+            );
+            
+            if (hasSessionFiles) {
+                console.log('Found existing session files, attempting auto-reconnect...');
+                
+                // Set initial status to connecting
+                connectionStatus = 'connecting';
+                
+                whatsappBot = new WhatsAppBot(db);
+                await whatsappBot.initialize();
+
+                whatsappBot.on('qr', async (qr) => {
+                    try {
+                        console.log('QR code received during auto-reconnect - session expired, new QR required');
+                        qrCodeData = await QRCode.toDataURL(qr, {
+                            width: 256,
+                            margin: 2,
+                            color: {
+                                dark: '#000000',
+                                light: '#FFFFFF'
+                            }
+                        });
+                        console.log('QR Code generated for web display');
+                        // Reset to disconnected so user can see QR code
+                        connectionStatus = 'disconnected';
+                    } catch (error) {
+                        console.error('Error generating QR code:', error);
+                        qrCodeData = qr;
+                        connectionStatus = 'disconnected';
+                    }
+                });
+
+                whatsappBot.on('ready', () => {
+                    connectionStatus = 'connected';
+                    qrCodeData = null;
+                    console.log('WhatsApp bot auto-reconnected successfully!');
+                });
+
+                whatsappBot.on('disconnected', () => {
+                    connectionStatus = 'disconnected';
+                    qrCodeData = null;
+                    console.log('WhatsApp bot disconnected during auto-reconnect');
+                });
+                
+                // Add timeout for auto-reconnect attempt
+                setTimeout(() => {
+                    if (connectionStatus === 'connecting') {
+                        console.log('Auto-reconnect timeout, session may be expired');
+                        connectionStatus = 'disconnected';
+                    }
+                }, 10000); // 10 seconds timeout
+                
+            } else {
+                console.log('No valid session files found, manual connection required');
+            }
+        } else {
+            console.log('Sessions directory not found, manual connection required');
+        }
+    } catch (error) {
+        console.error('Error during auto-reconnect:', error);
+        connectionStatus = 'disconnected';
+        qrCodeData = null;
+    }
+}
+
+// Auto-reconnect on startup
+autoReconnectWhatsApp();
+
 // Routes
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
@@ -47,10 +129,15 @@ app.post('/api/connect', async (req, res) => {
         console.log('Connect request received');
         
         if (whatsappBot && connectionStatus === 'connected') {
-            return res.json({ success: false, message: 'Already connected' });
+            return res.json({ success: true, message: 'Already connected' });
+        }
+        
+        if (whatsappBot && connectionStatus === 'connecting') {
+            return res.json({ success: true, message: 'Connection in progress' });
         }
 
         whatsappBot = new WhatsAppBot(db);
+        connectionStatus = 'connecting';
         await whatsappBot.initialize();
 
         whatsappBot.on('qr', async (qr) => {
@@ -86,6 +173,7 @@ app.post('/api/connect', async (req, res) => {
         res.json({ success: true, message: 'Connection initiated' });
     } catch (error) {
         console.error('Error connecting to WhatsApp:', error);
+        connectionStatus = 'disconnected';
         res.status(500).json({ success: false, message: error.message });
     }
 });
@@ -197,6 +285,23 @@ app.post('/api/transactions', async (req, res) => {
     }
 });
 
+app.post('/api/transactions/add', async (req, res) => {
+    try {
+        const { transactions } = req.body;
+        
+        if (!transactions || !Array.isArray(transactions)) {
+            return res.status(400).json({ success: false, message: 'Transactions array is required' });
+        }
+
+        await db.addTransactions(transactions);
+        
+        res.json({ success: true, message: `${transactions.length} transactions added successfully` });
+    } catch (error) {
+        console.error('Error adding transactions:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
 app.put('/api/transactions/:id/status', async (req, res) => {
     try {
         const { id } = req.params;
@@ -207,6 +312,33 @@ app.put('/api/transactions/:id/status', async (req, res) => {
         res.json({ success: true, message: 'Transaction status updated' });
     } catch (error) {
         console.error('Error updating transaction status:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+app.put('/api/transactions/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { kodeProduk, tujuan, nominal, pin } = req.body;
+        
+        await db.updateTransaction(id, kodeProduk, tujuan, nominal, pin);
+        
+        res.json({ success: true, message: 'Transaction updated successfully' });
+    } catch (error) {
+        console.error('Error updating transaction:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+app.delete('/api/transactions/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        
+        await db.deleteTransaction(id);
+        
+        res.json({ success: true, message: 'Transaction deleted successfully' });
+    } catch (error) {
+        console.error('Error deleting transaction:', error);
         res.status(500).json({ success: false, message: error.message });
     }
 });

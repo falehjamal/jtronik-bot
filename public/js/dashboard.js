@@ -47,20 +47,7 @@ $(document).ready(function() {
         $('#clear-data-btn').on('click', clearTransaksiData);
         
         // Send configuration listeners
-        $('#send-count, #target-number, #send-delay, #custom-delay').on('input change', updateSendInfo);
-        
-        // Handle custom delay input
-        $('#send-delay').on('change', function() {
-            const delaySelect = $(this);
-            const customDelayInput = $('#custom-delay');
-            
-            if (delaySelect.val() === 'custom') {
-                customDelayInput.show().focus();
-            } else {
-                customDelayInput.hide();
-            }
-            updateSendInfo();
-        });
+        $('#send-count, #target-number, #send-delay').on('input change', updateSendInfo);
     }
 
     function loadSectionData(section) {
@@ -371,11 +358,11 @@ $(document).ready(function() {
             dataRows.forEach((row, index) => {
                 if (row.length >= 4 && row[0]) { // At least 4 columns and first column not empty
                     processedData.push({
-                        id: index + 1,
                         kodeProduk: row[0] || '',
                         tujuan: row[1] || '',
                         nominal: row[2] || '',
-                        pin: row[3] || ''
+                        pin: row[3] || '',
+                        status: 'pending'
                     });
                 }
             });
@@ -384,17 +371,11 @@ $(document).ready(function() {
                 throw new Error('Tidak ada data valid yang ditemukan dalam file Excel');
             }
 
-            transaksiData = processedData;
-            displayTransaksiData();
-            showImportInfo(`Berhasil import ${processedData.length} data transaksi`, 'success');
-            showToast(`Berhasil import ${processedData.length} data transaksi`, 'success');
-            
-            // Save to database
+            // Save to database first, then reload all data
             saveTransactionsToDatabase(processedData);
             
-            // Update send count options
-            updateSendCount();
-            updateSendInfo();
+            showImportInfo(`Berhasil import ${processedData.length} data transaksi`, 'success');
+            showToast(`Berhasil import ${processedData.length} data transaksi`, 'success');
 
         } catch (error) {
             console.error('Error processing Excel data:', error);
@@ -507,15 +488,15 @@ $(document).ready(function() {
     async function saveTransactionsToDatabase(transactions) {
         try {
             const response = await $.ajax({
-                url: '/api/transactions',
+                url: '/api/transactions/add',
                 method: 'POST',
                 contentType: 'application/json',
                 data: JSON.stringify({ transactions })
             });
             
             if (response.success) {
-                console.log('Transactions saved to database');
-                // Reload data to get database IDs
+                console.log('Transactions added to database');
+                // Reload data to get updated list
                 await loadTransactionsFromDatabase();
             }
         } catch (error) {
@@ -557,8 +538,14 @@ $(document).ready(function() {
         }
     }
 
-    function editTransaksi(index) {
+    async function editTransaksi(index) {
         const item = transaksiData[index];
+        
+        if (!item || !item.id) {
+            showToast('Data transaksi tidak valid', 'error');
+            return;
+        }
+        
         // For now, just show the data in a prompt (you can enhance this with a modal)
         const newKodeProduk = prompt('Kode Produk:', item.kodeProduk);
         if (newKodeProduk === null) return;
@@ -572,34 +559,67 @@ $(document).ready(function() {
         const newPin = prompt('PIN:', item.pin);
         if (newPin === null) return;
 
-        transaksiData[index] = {
-            ...item,
-            kodeProduk: newKodeProduk,
-            tujuan: newTujuan,
-            nominal: newNominal,
-            pin: newPin
-        };
-
-        displayTransaksiData();
-        showToast('Data transaksi berhasil diupdate', 'success');
-        
-        // Save updated data to database
-        saveTransactionsToDatabase(transaksiData);
+        try {
+            showLoading();
+            
+            // Update in database
+            const response = await $.ajax({
+                url: `/api/transactions/${item.id}`,
+                method: 'PUT',
+                contentType: 'application/json',
+                data: JSON.stringify({
+                    kodeProduk: newKodeProduk,
+                    tujuan: newTujuan,
+                    nominal: newNominal,
+                    pin: newPin
+                })
+            });
+            
+            if (response.success) {
+                showToast('Data transaksi berhasil diupdate', 'success');
+                // Reload data from database
+                await loadTransactionsFromDatabase();
+            } else {
+                showToast('Error mengupdate data transaksi', 'error');
+            }
+        } catch (error) {
+            console.error('Error updating transaction:', error);
+            showToast('Error mengupdate data transaksi', 'error');
+        } finally {
+            hideLoading();
+        }
     }
 
-    function deleteTransaksi(index) {
+    async function deleteTransaksi(index) {
+        const item = transaksiData[index];
+        
+        if (!item || !item.id) {
+            showToast('Data transaksi tidak valid', 'error');
+            return;
+        }
+        
         if (confirm('Apakah Anda yakin ingin menghapus data ini?')) {
-            transaksiData.splice(index, 1);
-            displayTransaksiData();
-            showToast('Data transaksi berhasil dihapus', 'success');
-            
-            // Save updated data to database
-            saveTransactionsToDatabase(transaksiData);
-            
-            if (transaksiData.length === 0) {
-                showImportInfo('Pilih file Excel untuk import data transaksi', 'info');
-            } else {
-                showImportInfo(`${transaksiData.length} data transaksi tersedia`, 'success');
+            try {
+                showLoading();
+                
+                // Delete from database
+                const response = await $.ajax({
+                    url: `/api/transactions/${item.id}`,
+                    method: 'DELETE'
+                });
+                
+                if (response.success) {
+                    showToast('Data transaksi berhasil dihapus', 'success');
+                    // Reload data from database
+                    await loadTransactionsFromDatabase();
+                } else {
+                    showToast('Error menghapus data transaksi', 'error');
+                }
+            } catch (error) {
+                console.error('Error deleting transaction:', error);
+                showToast('Error menghapus data transaksi', 'error');
+            } finally {
+                hideLoading();
             }
         }
     }
@@ -675,22 +695,11 @@ $(document).ready(function() {
         }
     }
 
-    function getDelayValue() {
-        const delaySelect = $('#send-delay');
-        const customDelayInput = $('#custom-delay');
-        
-        if (delaySelect.val() === 'custom') {
-            return parseInt(customDelayInput.val()) || 1000;
-        } else {
-            return parseInt(delaySelect.val()) || 1000;
-        }
-    }
-
     function updateSendInfo() {
         const sendCountInput = $('#send-count');
         const targetNumber = $('#target-number').val().trim();
         const sendCount = parseInt(sendCountInput.val()) || 0;
-        const sendDelay = getDelayValue();
+        const sendDelay = parseInt($('#send-delay').val()) || 1000;
         const sendInfoEl = $('#send-info');
         const sendInfoText = $('#send-info-text');
         
@@ -771,7 +780,7 @@ $(document).ready(function() {
         // Ambil konfigurasi
         const targetNumber = $('#target-number').val().trim();
         const sendCount = parseInt($('#send-count').val());
-        const sendDelay = getDelayValue();
+        const sendDelay = parseInt($('#send-delay').val()) || 1000;
 
         if (!targetNumber) {
             showToast('Nomor tujuan harus diisi', 'error');
@@ -1020,9 +1029,11 @@ $(document).ready(function() {
             return;
         }
 
-        // Minta nomor tujuan
-        const targetNumber = prompt(`Kirim ulang transaksi "${item.kodeProduk}" ke nomor:`, item.tujuan || '');
-        if (!targetNumber || targetNumber.trim() === '') {
+        // Ambil nomor tujuan dari form input yang sudah ada
+        const targetNumber = $('#target-number').val().trim();
+        
+        if (!targetNumber) {
+            showToast('Masukkan nomor tujuan di form konfigurasi terlebih dahulu', 'error');
             return;
         }
 
@@ -1041,7 +1052,7 @@ $(document).ready(function() {
             normalizedNumber = normalizedNumber.slice(1);
         }
 
-        // Konfirmasi
+        // Konfirmasi singkat - langsung kirim
         if (!confirm(`Kirim ulang transaksi "${item.kodeProduk}" ke ${normalizedNumber}?`)) {
             return;
         }
@@ -1071,7 +1082,7 @@ $(document).ready(function() {
             if (response.success) {
                 item.status = 'sent';
                 await updateTransactionStatusInDatabase(item.id, 'sent', normalizedNumber);
-                showToast(`Transaksi "${item.kodeProduk}" berhasil dikirim ulang`, 'success');
+                showToast(`Transaksi "${item.kodeProduk}" berhasil dikirim ulang ke ${normalizedNumber}`, 'success');
             } else {
                 item.status = 'failed';
                 await updateTransactionStatusInDatabase(item.id, 'failed', normalizedNumber, response.message);
