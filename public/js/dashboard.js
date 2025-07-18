@@ -1,0 +1,1097 @@
+$(document).ready(function() {
+    let statusCheckInterval = null;
+    let currentStatus = 'disconnected';
+
+    // Initialize dashboard
+    initializeDashboard();
+
+    function initializeDashboard() {
+        setupNavigation();
+        setupEventListeners();
+        checkConnectionStatus();
+        startStatusPolling();
+        
+        // Load data transaksi saat pertama kali dibuka
+        loadTransactionsFromDatabase();
+    }
+
+    function setupNavigation() {
+        $('.nav-link').on('click', function(e) {
+            e.preventDefault();
+            
+            // Remove active class from all nav links and sections
+            $('.nav-link').removeClass('active');
+            $('.content-section').removeClass('active');
+            
+            // Add active class to clicked nav link
+            $(this).addClass('active');
+            
+            // Show corresponding section
+            const section = $(this).data('section');
+            $(`#${section}-section`).addClass('active');
+            
+            // Load section-specific data
+            loadSectionData(section);
+        });
+    }
+
+    function setupEventListeners() {
+        // Connection controls
+        $('#connect-btn').on('click', connectToWhatsApp);
+        $('#disconnect-btn').on('click', disconnectFromWhatsApp);
+        $('#clear-session-btn').on('click', clearSession);
+        
+        // Transaksi controls
+        $('#import-excel-btn').on('click', triggerFileInput);
+        $('#excel-file').on('change', handleFileImport);
+        $('#clear-data-btn').on('click', clearTransaksiData);
+        
+        // Send configuration listeners
+        $('#send-count, #target-number, #send-delay, #custom-delay').on('input change', updateSendInfo);
+        
+        // Handle custom delay input
+        $('#send-delay').on('change', function() {
+            const delaySelect = $(this);
+            const customDelayInput = $('#custom-delay');
+            
+            if (delaySelect.val() === 'custom') {
+                customDelayInput.show().focus();
+            } else {
+                customDelayInput.hide();
+            }
+            updateSendInfo();
+        });
+    }
+
+    function loadSectionData(section) {
+        switch(section) {
+            case 'transaksi':
+                loadTransaksiData();
+                break;
+            case 'connection':
+                // Connection section doesn't need additional data loading
+                break;
+        }
+    }
+
+    function startStatusPolling() {
+        statusCheckInterval = setInterval(checkConnectionStatus, 3000);
+    }
+
+    function stopStatusPolling() {
+        if (statusCheckInterval) {
+            clearInterval(statusCheckInterval);
+            statusCheckInterval = null;
+        }
+    }
+
+    async function checkConnectionStatus() {
+        try {
+            const response = await $.get('/api/status');
+            updateConnectionStatus(response.status);
+            
+            if (response.qrCode) {
+                showQRCode(response.qrCode);
+            } else {
+                hideQRCode();
+            }
+            
+            if (response.status === 'connected') {
+                showConnectionSuccess();
+            }
+        } catch (error) {
+            console.error('Error checking status:', error);
+            showToast('Error checking connection status', 'error');
+        }
+    }
+
+    function updateConnectionStatus(status) {
+        currentStatus = status;
+        const statusElement = $('#connection-status');
+        
+        statusElement.removeClass('connected disconnected connecting');
+        statusElement.addClass(status);
+        
+        switch(status) {
+            case 'connected':
+                statusElement.text('Connected');
+                $('#connect-btn').prop('disabled', true);
+                $('#disconnect-btn').prop('disabled', false);
+                break;
+            case 'connecting':
+                statusElement.text('Connecting');
+                $('#connect-btn').prop('disabled', true);
+                $('#disconnect-btn').prop('disabled', false);
+                break;
+            default:
+                statusElement.text('Disconnected');
+                $('#connect-btn').prop('disabled', false);
+                $('#disconnect-btn').prop('disabled', true);
+        }
+    }
+
+    async function connectToWhatsApp() {
+        try {
+            showLoading();
+            updateConnectionStatus('connecting');
+            showToast('Initiating WhatsApp connection...', 'info');
+            
+            const response = await $.post('/api/connect');
+            
+            if (response.success) {
+                showToast('Connection initiated. Please wait for QR code...', 'success');
+                // Start checking for QR code
+                startQRPolling();
+            } else {
+                showToast(response.message || 'Failed to connect', 'error');
+                updateConnectionStatus('disconnected');
+            }
+        } catch (error) {
+            console.error('Error connecting:', error);
+            showToast('Error connecting to WhatsApp', 'error');
+            updateConnectionStatus('disconnected');
+        } finally {
+            hideLoading();
+        }
+    }
+
+    function startQRPolling() {
+        // Show loading indicator
+        $('#qr-loading').show();
+        $('#qr-code').empty();
+        
+        // Poll more frequently when waiting for QR
+        const qrInterval = setInterval(async () => {
+            try {
+                const response = await $.get('/api/status');
+                if (response.qrCode) {
+                    $('#qr-loading').hide();
+                    showQRCode(response.qrCode);
+                    clearInterval(qrInterval);
+                } else if (response.status === 'connected') {
+                    $('#qr-loading').hide();
+                    clearInterval(qrInterval);
+                } else if (response.status === 'disconnected') {
+                    $('#qr-loading').hide();
+                    clearInterval(qrInterval);
+                }
+            } catch (error) {
+                console.error('Error polling QR status:', error);
+                $('#qr-loading').hide();
+                clearInterval(qrInterval);
+            }
+        }, 1000); // Check every second for QR
+        
+        // Stop polling after 60 seconds
+        setTimeout(() => {
+            $('#qr-loading').hide();
+            clearInterval(qrInterval);
+        }, 60000);
+    }
+
+    async function disconnectFromWhatsApp() {
+        try {
+            showLoading();
+            
+            const response = await $.post('/api/disconnect');
+            
+            if (response.success) {
+                showToast('Disconnected successfully', 'success');
+                updateConnectionStatus('disconnected');
+                hideQRCode();
+                hideConnectionSuccess();
+            } else {
+                showToast(response.message || 'Failed to disconnect', 'error');
+            }
+        } catch (error) {
+            console.error('Error disconnecting:', error);
+            showToast('Error disconnecting from WhatsApp', 'error');
+        } finally {
+            hideLoading();
+        }
+    }
+
+    async function clearSession() {
+        try {
+            if (!confirm('Clear session akan menghapus semua data login WhatsApp. Anda perlu login ulang. Lanjutkan?')) {
+                return;
+            }
+
+            showLoading();
+            showToast('Clearing session...', 'info');
+            
+            const response = await $.post('/api/clear-session');
+            
+            if (response.success) {
+                showToast('Session cleared successfully. Please reconnect.', 'success');
+                updateConnectionStatus('disconnected');
+                hideQRCode();
+                hideConnectionSuccess();
+            } else {
+                showToast(response.message || 'Failed to clear session', 'error');
+            }
+        } catch (error) {
+            console.error('Error clearing session:', error);
+            showToast('Error clearing session', 'error');
+        } finally {
+            hideLoading();
+        }
+    }
+
+    function showQRCode(qrData) {
+        $('#qr-container').show();
+        $('#connection-info').hide();
+        
+        // Clear previous QR code
+        $('#qr-code').empty();
+        
+        // Check if qrData is a data URL or raw string
+        if (qrData.startsWith('data:image')) {
+            // Display as image if it's a data URL
+            const img = $('<img>')
+                .attr('src', qrData)
+                .css({
+                    'max-width': '256px',
+                    'height': 'auto',
+                    'border-radius': '10px'
+                });
+            $('#qr-code').append(img);
+        } else {
+            // Generate QR code from raw string (fallback)
+            QRCode.toCanvas(document.getElementById('qr-code'), qrData, {
+                width: 256,
+                margin: 2,
+                color: {
+                    dark: '#000000',
+                    light: '#FFFFFF'
+                }
+            }, function(error) {
+                if (error) {
+                    console.error('Error generating QR code:', error);
+                    showToast('Error generating QR code', 'error');
+                }
+            });
+        }
+    }
+
+    function hideQRCode() {
+        $('#qr-container').hide();
+        $('#qr-code').empty();
+    }
+
+    function showConnectionSuccess() {
+        $('#connection-info').show();
+        $('#qr-container').hide();
+    }
+
+    function hideConnectionSuccess() {
+        $('#connection-info').hide();
+    }
+
+    function showLoading() {
+        $('#loading-overlay').show();
+    }
+
+    function hideLoading() {
+        $('#loading-overlay').hide();
+    }
+
+    // Tambahkan event listener untuk tombol kirim
+    setupSendListeners();
+
+    function setupSendListeners() {
+        // Tombol Kirim
+        $(document).on('click', '#send-btn', sendTransactionData);
+        
+        // Tombol Reset Status
+        $(document).on('click', '#reset-status-btn', resetTransactionStatus);
+        
+        // Update count selector saat data berubah
+        $(document).on('transaksiDataUpdated', updateSendCount);
+    }
+
+    // Transaksi Functions
+    let transaksiData = [];
+    let sendingInProgress = false;
+
+    function triggerFileInput() {
+        $('#excel-file').click();
+    }
+
+    function handleFileImport(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        showLoading();
+        showImportInfo('Processing file...', 'info');
+
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            try {
+                const data = new Uint8Array(e.target.result);
+                const workbook = XLSX.read(data, { type: 'array' });
+                
+                // Get first worksheet
+                const firstSheetName = workbook.SheetNames[0];
+                const worksheet = workbook.Sheets[firstSheetName];
+                
+                // Convert to JSON
+                const jsonData = XLSX.utils.sheet_to_json(worksheet, { 
+                    header: 1,
+                    defval: '' 
+                });
+
+                if (jsonData.length < 2) {
+                    throw new Error('File Excel harus memiliki minimal 1 baris data (selain header)');
+                }
+
+                // Process data
+                processExcelData(jsonData);
+                
+            } catch (error) {
+                console.error('Error reading Excel file:', error);
+                showImportInfo('Error: ' + error.message, 'error');
+                showToast('Error membaca file Excel: ' + error.message, 'error');
+            } finally {
+                hideLoading();
+                // Reset file input
+                $('#excel-file').val('');
+            }
+        };
+
+        reader.readAsArrayBuffer(file);
+    }
+
+    function processExcelData(jsonData) {
+        try {
+            // Skip header row (index 0)
+            const dataRows = jsonData.slice(1);
+            const processedData = [];
+
+            dataRows.forEach((row, index) => {
+                if (row.length >= 4 && row[0]) { // At least 4 columns and first column not empty
+                    processedData.push({
+                        id: index + 1,
+                        kodeProduk: row[0] || '',
+                        tujuan: row[1] || '',
+                        nominal: row[2] || '',
+                        pin: row[3] || ''
+                    });
+                }
+            });
+
+            if (processedData.length === 0) {
+                throw new Error('Tidak ada data valid yang ditemukan dalam file Excel');
+            }
+
+            transaksiData = processedData;
+            displayTransaksiData();
+            showImportInfo(`Berhasil import ${processedData.length} data transaksi`, 'success');
+            showToast(`Berhasil import ${processedData.length} data transaksi`, 'success');
+            
+            // Save to database
+            saveTransactionsToDatabase(processedData);
+            
+            // Update send count options
+            updateSendCount();
+            updateSendInfo();
+
+        } catch (error) {
+            console.error('Error processing Excel data:', error);
+            showImportInfo('Error: ' + error.message, 'error');
+            showToast('Error memproses data: ' + error.message, 'error');
+        }
+    }
+
+    function displayTransaksiData() {
+        const tbody = $('#transaksi-tbody');
+        tbody.empty();
+
+        if (transaksiData.length === 0) {
+            $('#empty-state').show();
+            $('.table-container').hide();
+            $('.send-config').hide();
+            return;
+        }
+
+        $('#empty-state').hide();
+        $('.table-container').show();
+        $('.send-config').show();
+
+        transaksiData.forEach((item, index) => {
+            const statusBadge = getStatusBadge(item.status || 'pending');
+            const canResend = item.status === 'failed' || item.status === 'sent';
+            const resendButton = canResend ? 
+                `<button class="btn btn-info btn-sm resend-btn" data-index="${index}" title="Kirim Ulang">
+                    <i class="fas fa-redo"></i>
+                </button>` : '';
+            
+            const row = $(`
+                <tr>
+                    <td>${index + 1}</td>
+                    <td>${escapeHtml(item.kodeProduk)}</td>
+                    <td>${escapeHtml(item.tujuan)}</td>
+                    <td>${escapeHtml(item.nominal)}</td>
+                    <td>${escapeHtml(item.pin)}</td>
+                    <td>${statusBadge}</td>
+                    <td>
+                        <div class="action-buttons">
+                            ${resendButton}
+                            <button class="btn btn-warning btn-sm edit-btn" data-index="${index}" title="Edit">
+                                <i class="fas fa-edit"></i>
+                            </button>
+                            <button class="btn btn-danger btn-sm delete-btn" data-index="${index}" title="Hapus">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+            `);
+            tbody.append(row);
+        });
+
+        // Bind action buttons
+        $('.resend-btn').on('click', function() {
+            const index = $(this).data('index');
+            resendSingleTransaction(index);
+        });
+
+        $('.edit-btn').on('click', function() {
+            const index = $(this).data('index');
+            editTransaksi(index);
+        });
+
+        $('.delete-btn').on('click', function() {
+            const index = $(this).data('index');
+            deleteTransaksi(index);
+        });
+    }
+
+    function loadTransaksiData() {
+        // Load data from database
+        loadTransactionsFromDatabase();
+    }
+
+    async function loadTransactionsFromDatabase() {
+        try {
+            showLoading();
+            const response = await $.get('/api/transactions');
+            
+            if (response.success) {
+                transaksiData = response.data.map(item => ({
+                    id: item.id,
+                    kodeProduk: item.kode_produk,
+                    tujuan: item.tujuan,
+                    nominal: item.nominal,
+                    pin: item.pin,
+                    status: item.status || 'pending'
+                }));
+                
+                displayTransaksiData();
+                if (transaksiData.length > 0) {
+                    showImportInfo(`${transaksiData.length} data transaksi tersedia`, 'success');
+                    updateSendCount();
+                    updateSendInfo();
+                } else {
+                    showImportInfo('Belum ada data transaksi. Import file Excel untuk menambah data.', 'info');
+                }
+            }
+        } catch (error) {
+            console.error('Error loading transactions:', error);
+            showToast('Error memuat data transaksi', 'error');
+        } finally {
+            hideLoading();
+        }
+    }
+
+    async function saveTransactionsToDatabase(transactions) {
+        try {
+            const response = await $.ajax({
+                url: '/api/transactions',
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({ transactions })
+            });
+            
+            if (response.success) {
+                console.log('Transactions saved to database');
+                // Reload data to get database IDs
+                await loadTransactionsFromDatabase();
+            }
+        } catch (error) {
+            console.error('Error saving transactions:', error);
+            showToast('Error menyimpan data ke database', 'error');
+        }
+    }
+
+    function clearTransaksiData() {
+        if (transaksiData.length === 0) {
+            showToast('Tidak ada data untuk dihapus', 'warning');
+            return;
+        }
+
+        if (confirm('Apakah Anda yakin ingin menghapus semua data transaksi?')) {
+            clearTransactionsFromDatabase();
+        }
+    }
+
+    async function clearTransactionsFromDatabase() {
+        try {
+            showLoading();
+            const response = await $.ajax({
+                url: '/api/transactions',
+                method: 'DELETE'
+            });
+            
+            if (response.success) {
+                transaksiData = [];
+                displayTransaksiData();
+                showImportInfo('Semua data transaksi telah dihapus', 'info');
+                showToast('Data transaksi berhasil dihapus', 'success');
+            }
+        } catch (error) {
+            console.error('Error clearing transactions:', error);
+            showToast('Error menghapus data transaksi', 'error');
+        } finally {
+            hideLoading();
+        }
+    }
+
+    function editTransaksi(index) {
+        const item = transaksiData[index];
+        // For now, just show the data in a prompt (you can enhance this with a modal)
+        const newKodeProduk = prompt('Kode Produk:', item.kodeProduk);
+        if (newKodeProduk === null) return;
+
+        const newTujuan = prompt('Tujuan:', item.tujuan);
+        if (newTujuan === null) return;
+
+        const newNominal = prompt('Nominal:', item.nominal);
+        if (newNominal === null) return;
+
+        const newPin = prompt('PIN:', item.pin);
+        if (newPin === null) return;
+
+        transaksiData[index] = {
+            ...item,
+            kodeProduk: newKodeProduk,
+            tujuan: newTujuan,
+            nominal: newNominal,
+            pin: newPin
+        };
+
+        displayTransaksiData();
+        showToast('Data transaksi berhasil diupdate', 'success');
+        
+        // Save updated data to database
+        saveTransactionsToDatabase(transaksiData);
+    }
+
+    function deleteTransaksi(index) {
+        if (confirm('Apakah Anda yakin ingin menghapus data ini?')) {
+            transaksiData.splice(index, 1);
+            displayTransaksiData();
+            showToast('Data transaksi berhasil dihapus', 'success');
+            
+            // Save updated data to database
+            saveTransactionsToDatabase(transaksiData);
+            
+            if (transaksiData.length === 0) {
+                showImportInfo('Pilih file Excel untuk import data transaksi', 'info');
+            } else {
+                showImportInfo(`${transaksiData.length} data transaksi tersedia`, 'success');
+            }
+        }
+    }
+
+    function showImportInfo(message, type = 'info') {
+        const infoDiv = $('#import-info');
+        const messageSpan = $('#import-message');
+        
+        infoDiv.removeClass('success error info').addClass(type);
+        messageSpan.text(message);
+        infoDiv.show();
+    }
+
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    function showToast(message, type = 'success') {
+        const toastId = 'toast-' + Date.now();
+        const toast = $(`
+            <div id="${toastId}" class="toast ${type}">
+                <div class="toast-header">${type.charAt(0).toUpperCase() + type.slice(1)}</div>
+                <div class="toast-body">${message}</div>
+            </div>
+        `);
+        
+        $('#toast-container').append(toast);
+        
+        setTimeout(() => {
+            toast.addClass('show');
+        }, 100);
+        
+        setTimeout(() => {
+            toast.removeClass('show');
+            setTimeout(() => {
+                toast.remove();
+            }, 300);
+        }, 3000);
+    }
+
+    // WhatsApp Send Functions
+    function updateSendCount() {
+        const sendCountInput = $('#send-count');
+        const maxCount = transaksiData.length;
+        
+        if (sendCountInput.length && maxCount > 0) {
+            // Hitung data berdasarkan status
+            const pendingCount = transaksiData.filter(item => item.status === 'pending').length;
+            const sentCount = transaksiData.filter(item => item.status === 'sent').length;
+            const failedCount = transaksiData.filter(item => item.status === 'failed').length;
+            const unsentCount = pendingCount + failedCount;
+            
+            sendCountInput.attr('max', unsentCount > 0 ? unsentCount : maxCount);
+            const currentValue = parseInt(sendCountInput.val()) || 1;
+            
+            if (unsentCount === 0) {
+                sendCountInput.val(1);
+            } else if (currentValue > unsentCount) {
+                sendCountInput.val(unsentCount);
+            }
+            
+            // Update info di bawah input
+            const infoText = `Total: ${maxCount} | Pending: ${pendingCount} | Terkirim: ${sentCount} | Gagal: ${failedCount}`;
+            $('#send-count').next('.form-text').html(`
+                ${infoText}<br>
+                <strong>Data yang akan dikirim: ${unsentCount > 0 ? 'Yang belum terkirim' : 'Semua sudah terkirim'}</strong>
+            `);
+            
+            // Update send info
+            updateSendInfo();
+        }
+    }
+
+    function getDelayValue() {
+        const delaySelect = $('#send-delay');
+        const customDelayInput = $('#custom-delay');
+        
+        if (delaySelect.val() === 'custom') {
+            return parseInt(customDelayInput.val()) || 1000;
+        } else {
+            return parseInt(delaySelect.val()) || 1000;
+        }
+    }
+
+    function updateSendInfo() {
+        const sendCountInput = $('#send-count');
+        const targetNumber = $('#target-number').val().trim();
+        const sendCount = parseInt(sendCountInput.val()) || 0;
+        const sendDelay = getDelayValue();
+        const sendInfoEl = $('#send-info');
+        const sendInfoText = $('#send-info-text');
+        
+        if (transaksiData.length === 0) {
+            sendInfoEl.hide();
+            return;
+        }
+        
+        // Hitung data yang belum terkirim
+        const unsentData = transaksiData.filter(item => 
+            item.status === 'pending' || item.status === 'failed'
+        );
+        
+        if (unsentData.length === 0) {
+            sendInfoText.html('Semua data sudah terkirim');
+            sendInfoEl.show();
+            return;
+        }
+        
+        const dataToSend = unsentData.slice(0, sendCount);
+        const totalAmount = dataToSend.reduce((sum, item) => sum + parseFloat(item.nominal || 0), 0);
+        
+        // Hitung estimasi waktu total
+        const totalTimeMs = dataToSend.length > 1 ? (dataToSend.length - 1) * sendDelay : 0;
+        const minutes = Math.floor(totalTimeMs / 60000);
+        const seconds = Math.floor((totalTimeMs % 60000) / 1000);
+        const timeEstimate = minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
+        
+        if (targetNumber && sendCount > 0) {
+            sendInfoText.html(`
+                Akan mengirim ${dataToSend.length} data ke nomor ${targetNumber}<br>
+                <small>Total nominal: Rp ${totalAmount.toLocaleString('id-ID')} | 
+                Delay: ${sendDelay}ms | 
+                Estimasi waktu: ${timeEstimate}</small>
+            `);
+        } else if (sendCount > 0) {
+            sendInfoText.html(`
+                ${dataToSend.length} data siap dikirim (masukkan nomor tujuan)<br>
+                <small>Total nominal: Rp ${totalAmount.toLocaleString('id-ID')} | 
+                Delay: ${sendDelay}ms | 
+                Estimasi waktu: ${timeEstimate}</small>
+            `);
+        } else {
+            sendInfoText.html('Pilih jumlah data yang akan dikirim');
+        }
+        
+        sendInfoEl.show();
+    }
+
+    function getStatusBadge(status) {
+        const badges = {
+            'pending': '<span class="status-badge pending">Pending</span>',
+            'sent': '<span class="status-badge sent">Terkirim</span>',
+            'failed': '<span class="status-badge failed">Gagal</span>',
+            'sending': '<span class="status-badge sending">Mengirim</span>'
+        };
+        return badges[status] || badges['pending'];
+    }
+
+    async function sendTransactionData() {
+        if (sendingInProgress) {
+            showToast('Pengiriman sedang berlangsung', 'warning');
+            return;
+        }
+
+        // Validasi koneksi WhatsApp
+        if (currentStatus !== 'connected') {
+            showToast('WhatsApp belum terkoneksi. Silakan koneksi terlebih dahulu.', 'error');
+            return;
+        }
+
+        // Validasi data
+        if (transaksiData.length === 0) {
+            showToast('Tidak ada data transaksi untuk dikirim', 'warning');
+            return;
+        }
+
+        // Ambil konfigurasi
+        const targetNumber = $('#target-number').val().trim();
+        const sendCount = parseInt($('#send-count').val());
+        const sendDelay = getDelayValue();
+
+        if (!targetNumber) {
+            showToast('Nomor tujuan harus diisi', 'error');
+            return;
+        }
+
+        // Validasi delay minimum
+        if (sendDelay < 500) {
+            showToast('Delay minimum adalah 500ms untuk menghindari spam', 'error');
+            return;
+        }
+
+        // Validasi format nomor (harus dimulai dengan +62 atau 62)
+        const phoneRegex = /^(\+62|62|0)[\d\s\-()]+$/;
+        if (!phoneRegex.test(targetNumber)) {
+            showToast('Format nomor tidak valid. Gunakan format: +62xxx atau 62xxx', 'error');
+            return;
+        }
+
+        // Normalisasi nomor
+        let normalizedNumber = targetNumber.replace(/[\s\-()]/g, '');
+        if (normalizedNumber.startsWith('0')) {
+            normalizedNumber = '62' + normalizedNumber.slice(1);
+        } else if (normalizedNumber.startsWith('+62')) {
+            normalizedNumber = normalizedNumber.slice(1);
+        }
+
+        // Cari data yang belum terkirim (status pending atau failed)
+        const unsentData = transaksiData.filter(item => 
+            item.status === 'pending' || item.status === 'failed'
+        );
+
+        if (unsentData.length === 0) {
+            showToast('Semua data sudah terkirim', 'info');
+            return;
+        }
+
+        // Ambil data yang akan dikirim berdasarkan sendCount
+        // Jika sendCount lebih besar dari data yang belum terkirim, kirim semua yang belum terkirim
+        const dataToSend = unsentData.slice(0, Math.min(sendCount, unsentData.length));
+        
+        // Konfirmasi
+        const confirmMessage = `Kirim ${dataToSend.length} data transaksi yang belum terkirim ke ${targetNumber}?\n\n` +
+                              `Total belum terkirim: ${unsentData.length} data\n` +
+                              `Akan dikirim: ${dataToSend.length} data`;
+        
+        if (!confirm(confirmMessage)) {
+            return;
+        }
+
+        // Mulai pengiriman
+        sendingInProgress = true;
+        $('#send-btn').prop('disabled', true).text('Mengirim...');
+        
+        // Tambahkan progress bar setelah form konfigurasi
+        const progressHtml = `
+            <div class="progress-container" style="display: block;">
+                <div class="progress-bar">
+                    <div class="progress-fill" style="width: 0%;"></div>
+                    <div class="progress-text">0/${dataToSend.length} (0%)</div>
+                </div>
+            </div>
+        `;
+        
+        if ($('.progress-container').length === 0) {
+            $('.send-config').after(progressHtml);
+        } else {
+            $('.progress-container').show();
+        }
+
+        let successCount = 0;
+        let failedCount = 0;
+
+        try {
+            for (let i = 0; i < dataToSend.length; i++) {
+                if (!sendingInProgress) {
+                    // Jika dibatalkan
+                    break;
+                }
+
+                const item = dataToSend[i];
+                
+                // Update status menjadi sending
+                item.status = 'sending';
+                displayTransaksiData();
+                
+                // Update status di database
+                await updateTransactionStatusInDatabase(item.id, 'sending', normalizedNumber);
+
+                // Format pesan
+                const message = `${item.kodeProduk}.${item.tujuan}.${item.nominal}.${item.pin}`;
+
+                try {
+                    // Kirim pesan
+                    const response = await $.ajax({
+                        url: '/api/send-message',
+                        method: 'POST',
+                        contentType: 'application/json',
+                        data: JSON.stringify({
+                            number: normalizedNumber,
+                            message: message
+                        })
+                    });
+
+                    if (response.success) {
+                        item.status = 'sent';
+                        successCount++;
+                        await updateTransactionStatusInDatabase(item.id, 'sent', normalizedNumber);
+                    } else {
+                        item.status = 'failed';
+                        failedCount++;
+                        await updateTransactionStatusInDatabase(item.id, 'failed', normalizedNumber, response.message);
+                    }
+                } catch (error) {
+                    console.error('Error sending message:', error);
+                    item.status = 'failed';
+                    failedCount++;
+                    await updateTransactionStatusInDatabase(item.id, 'failed', normalizedNumber, error.responseJSON?.message || error.message);
+                }
+
+                // Update display
+                displayTransaksiData();
+                updateProgress(i + 1, dataToSend.length);
+
+                // Delay antar pengiriman sesuai konfigurasi
+                if (i < dataToSend.length - 1 && sendingInProgress) {
+                    await new Promise(resolve => setTimeout(resolve, sendDelay));
+                }
+            }
+
+            // Hitung data yang masih belum terkirim setelah proses selesai
+            const remainingUnsent = transaksiData.filter(item => 
+                item.status === 'pending' || item.status === 'failed'
+            ).length;
+
+            // Tampilkan hasil
+            if (sendingInProgress) {
+                const resultMessage = `Pengiriman selesai. Berhasil: ${successCount}, Gagal: ${failedCount}` +
+                                    (remainingUnsent > 0 ? `\nData yang belum terkirim: ${remainingUnsent}` : '\nSemua data sudah terkirim!');
+                showToast(resultMessage, 'info');
+            } else {
+                showToast('Pengiriman dibatalkan', 'warning');
+            }
+
+        } catch (error) {
+            console.error('Error in sending process:', error);
+            showToast('Terjadi kesalahan saat mengirim data', 'error');
+        } finally {
+            // Reset UI
+            sendingInProgress = false;
+            $('#send-btn').prop('disabled', false).text('Kirim ke WhatsApp');
+            hideProgress();
+            
+            // Update count dan info setelah pengiriman selesai
+            updateSendCount();
+            updateSendInfo();
+        }
+    }
+
+    function resetTransactionStatus() {
+        if (transaksiData.length === 0) {
+            showToast('Tidak ada data transaksi', 'warning');
+            return;
+        }
+
+        if (confirm('Reset status semua transaksi menjadi pending?')) {
+            resetTransactionStatusInDatabase();
+        }
+    }
+
+    async function resetTransactionStatusInDatabase() {
+        try {
+            showLoading();
+            const response = await $.ajax({
+                url: '/api/transactions/reset-status',
+                method: 'PUT'
+            });
+            
+            if (response.success) {
+                // Reload data from database
+                await loadTransactionsFromDatabase();
+                showToast('Status transaksi berhasil direset', 'success');
+            }
+        } catch (error) {
+            console.error('Error resetting transaction status:', error);
+            showToast('Error mereset status transaksi', 'error');
+        } finally {
+            hideLoading();
+        }
+    }
+
+    function cancelSending() {
+        if (sendingInProgress) {
+            sendingInProgress = false;
+            showToast('Membatalkan pengiriman...', 'info');
+        }
+    }
+
+    function showProgress(current, total) {
+        const percentage = Math.round((current / total) * 100);
+        const progressContainer = $('.progress-container');
+        const progressFill = $('.progress-fill');
+        const progressText = $('.progress-text');
+        
+        progressContainer.show();
+        progressFill.css('width', percentage + '%');
+        progressText.text(`${current}/${total} (${percentage}%)`);
+    }
+
+    function updateProgress(current, total) {
+        showProgress(current, total);
+    }
+
+    function hideProgress() {
+        $('.progress-container').hide();
+    }
+
+    async function updateTransactionStatusInDatabase(id, status, sentTo = null, errorMessage = null) {
+        try {
+            await $.ajax({
+                url: `/api/transactions/${id}/status`,
+                method: 'PUT',
+                contentType: 'application/json',
+                data: JSON.stringify({
+                    status: status,
+                    sentTo: sentTo,
+                    errorMessage: errorMessage
+                })
+            });
+        } catch (error) {
+            console.error('Error updating transaction status in database:', error);
+        }
+    }
+
+    async function resendSingleTransaction(index) {
+        const item = transaksiData[index];
+        
+        if (!item) {
+            showToast('Data transaksi tidak ditemukan', 'error');
+            return;
+        }
+
+        // Validasi koneksi WhatsApp
+        if (currentStatus !== 'connected') {
+            showToast('WhatsApp belum terkoneksi. Silakan koneksi terlebih dahulu.', 'error');
+            return;
+        }
+
+        // Minta nomor tujuan
+        const targetNumber = prompt(`Kirim ulang transaksi "${item.kodeProduk}" ke nomor:`, item.tujuan || '');
+        if (!targetNumber || targetNumber.trim() === '') {
+            return;
+        }
+
+        // Validasi format nomor
+        const phoneRegex = /^(\+62|62|0)[\d\s\-()]+$/;
+        if (!phoneRegex.test(targetNumber)) {
+            showToast('Format nomor tidak valid. Gunakan format: +62xxx atau 62xxx', 'error');
+            return;
+        }
+
+        // Normalisasi nomor
+        let normalizedNumber = targetNumber.replace(/[\s\-()]/g, '');
+        if (normalizedNumber.startsWith('0')) {
+            normalizedNumber = '62' + normalizedNumber.slice(1);
+        } else if (normalizedNumber.startsWith('+62')) {
+            normalizedNumber = normalizedNumber.slice(1);
+        }
+
+        // Konfirmasi
+        if (!confirm(`Kirim ulang transaksi "${item.kodeProduk}" ke ${normalizedNumber}?`)) {
+            return;
+        }
+
+        try {
+            // Update status menjadi sending
+            item.status = 'sending';
+            displayTransaksiData();
+            await updateTransactionStatusInDatabase(item.id, 'sending', normalizedNumber);
+
+            // Format pesan
+            const message = `${item.kodeProduk}.${item.tujuan}.${item.nominal}.${item.pin}`;
+
+            showToast('Mengirim ulang transaksi...', 'info');
+
+            // Kirim pesan
+            const response = await $.ajax({
+                url: '/api/send-message',
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({
+                    number: normalizedNumber,
+                    message: message
+                })
+            });
+
+            if (response.success) {
+                item.status = 'sent';
+                await updateTransactionStatusInDatabase(item.id, 'sent', normalizedNumber);
+                showToast(`Transaksi "${item.kodeProduk}" berhasil dikirim ulang`, 'success');
+            } else {
+                item.status = 'failed';
+                await updateTransactionStatusInDatabase(item.id, 'failed', normalizedNumber, response.message);
+                showToast(`Gagal mengirim ulang: ${response.message}`, 'error');
+            }
+        } catch (error) {
+            console.error('Error resending transaction:', error);
+            item.status = 'failed';
+            await updateTransactionStatusInDatabase(item.id, 'failed', normalizedNumber, error.responseJSON?.message || error.message);
+            showToast(`Error mengirim ulang: ${error.responseJSON?.message || error.message}`, 'error');
+        }
+
+        // Update display dan info
+        displayTransaksiData();
+        updateSendCount();
+        updateSendInfo();
+    }
+
+    // Cleanup on page unload
+    $(window).on('beforeunload', function() {
+        stopStatusPolling();
+    });
+});

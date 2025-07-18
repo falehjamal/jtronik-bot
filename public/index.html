@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jtronik Bot Dashboard</title>
+    <link rel="stylesheet" href="css/styles.css">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="dashboard">
+        <!-- Sidebar -->
+        <div class="sidebar">
+            <div class="sidebar-header">
+                <h2><i class="fab fa-whatsapp"></i> Jtronik Bot</h2>
+            </div>
+            <nav class="sidebar-nav">
+                <ul>
+                    <li><a href="#" class="nav-link active" data-section="connection"><i class="fas fa-plug"></i> Connection</a></li>
+                    <li><a href="#" class="nav-link" data-section="transaksi"><i class="fas fa-exchange-alt"></i> Transaksi</a></li>
+                </ul>
+            </nav>
+        </div>
+
+        <!-- Main Content -->
+        <div class="main-content">
+            <div class="header">
+                <h1>Dashboard</h1>
+                <div class="status-indicator">
+                    <span id="connection-status" class="status disconnected">Disconnected</span>
+                </div>
+            </div>
+
+            <!-- Connection Section -->
+            <div id="connection-section" class="content-section active">
+                <div class="card">
+                    <div class="card-header">
+                        <h3><i class="fas fa-plug"></i> WhatsApp Connection</h3>
+                    </div>
+                    <div class="card-body">
+                        <div class="connection-controls">
+                            <button id="connect-btn" class="btn btn-primary">
+                                <i class="fas fa-link"></i> Connect to WhatsApp
+                            </button>
+                            <button id="disconnect-btn" class="btn btn-danger" disabled>
+                                <i class="fas fa-unlink"></i> Disconnect
+                            </button>
+                            <button id="clear-session-btn" class="btn btn-warning">
+                                <i class="fas fa-trash-alt"></i> Clear Session
+                            </button>
+                        </div>
+                        
+                        <div id="qr-container" class="qr-container" style="display: none;">
+                            <h4><i class="fas fa-qrcode"></i> Scan QR Code with WhatsApp Mobile App</h4>
+                            <div id="qr-loading" class="qr-loading" style="display: none;">
+                                <i class="fas fa-spinner fa-spin"></i>
+                                <p>Generating QR Code...</p>
+                            </div>
+                            <div id="qr-code"></div>
+                            <div class="qr-instructions">
+                                <p><strong>Langkah-langkah:</strong></p>
+                                <ol style="text-align: left; display: inline-block;">
+                                    <li>Buka <strong>WhatsApp</strong> di smartphone Anda</li>
+                                    <li>Tap <strong>⋮</strong> (menu) atau <strong>Settings</strong></li>
+                                    <li>Pilih <strong>"Linked Devices"</strong> atau <strong>"WhatsApp Web"</strong></li>
+                                    <li>Tap <strong>"Link a Device"</strong></li>
+                                    <li><strong>Scan QR code</strong> di atas</li>
+                                </ol>
+                                <p><small><i class="fas fa-info-circle"></i> QR code akan expired dalam 20 detik. Jika expired, klik "Connect" lagi.</small></p>
+                            </div>
+                        </div>
+
+                        <div id="connection-info" class="connection-info" style="display: none;">
+                            <h4><i class="fas fa-check-circle"></i> Koneksi Berhasil!</h4>
+                            <p>WhatsApp bot Anda sudah terhubung dan siap untuk mengirim/menerima pesan.</p>
+                            <div class="connection-details">
+                                <p><i class="fas fa-mobile-alt"></i> Device berhasil terhubung ke WhatsApp Web</p>
+                                <p><i class="fas fa-shield-alt"></i> Koneksi aman dan terenkripsi</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Transaksi Section -->
+            <div id="transaksi-section" class="content-section">
+                <div class="card">
+                    <div class="card-header">
+                        <h3><i class="fas fa-exchange-alt"></i> Data Transaksi</h3>
+                        <div class="card-actions">
+                            <input type="file" id="excel-file" accept=".xlsx,.xls" style="display: none;">
+                            <button id="import-excel-btn" class="btn btn-success btn-sm">
+                                <i class="fas fa-file-excel"></i> Import Excel
+                            </button>
+                            <button id="clear-data-btn" class="btn btn-secondary btn-sm">
+                                <i class="fas fa-trash"></i> Clear Data
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div id="import-info" class="import-info" style="display: none;">
+                            <div class="import-status">
+                                <i class="fas fa-info-circle"></i>
+                                <span id="import-message">Pilih file Excel untuk import data transaksi</span>
+                            </div>
+                        </div>
+
+                        <!-- Send Configuration Form -->
+                        <div class="send-config" id="send-config" style="display: none;">
+                            <h5><i class="fas fa-paper-plane"></i> Konfigurasi Pengiriman WhatsApp</h5>
+                            <form id="send-config-form">
+                                <div class="config-grid">
+                                    <div class="form-group">
+                                        <label for="target-number">Nomor Tujuan WhatsApp:</label>
+                                        <input type="text" id="target-number" class="form-control" placeholder="628123456789" required>
+                                        <small class="form-text">Nomor WhatsApp tujuan (dengan kode negara, tanpa +)</small>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="send-count">Jumlah Data yang Dikirim:</label>
+                                        <input type="number" id="send-count" class="form-control" min="1" max="100" value="1" required>
+                                        <small class="form-text">Jumlah baris dari atas tabel yang akan dikirim</small>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="send-delay">Delay Pengiriman (ms):</label>
+                                        <select id="send-delay" class="form-control" required>
+                                            <option value="500">500ms (Cepat)</option>
+                                            <option value="1000" selected>1000ms (Normal)</option>
+                                            <option value="2000">2000ms (Aman)</option>
+                                            <option value="3000">3000ms (Sangat Aman)</option>
+                                            <option value="5000">5000ms (Konservatif)</option>
+                                            <option value="custom">Custom...</option>
+                                        </select>
+                                        <input type="number" id="custom-delay" class="form-control" min="500" max="10000" value="1000" style="display: none; margin-top: 5px;" placeholder="Masukkan delay custom (ms)">
+                                        <small class="form-text">Jeda waktu antar pengiriman dalam milidetik (minimum 500ms)</small>
+                                    </div>
+                                </div>
+                                <div class="send-info" id="send-info" style="display: none;">
+                                    <div class="alert alert-info">
+                                        <i class="fas fa-info-circle"></i>
+                                        <span id="send-info-text">Data yang akan dikirim: -</span>
+                                    </div>
+                                </div>
+                                <div class="send-actions">
+                                    <button type="submit" class="btn btn-primary" id="send-btn">
+                                        <i class="fas fa-paper-plane"></i> Kirim ke WhatsApp
+                                    </button>
+                                    <button type="button" class="btn btn-secondary" id="reset-status-btn">
+                                        <i class="fas fa-undo"></i> Reset Status
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                        
+                        <div class="table-container">
+                            <table id="transaksi-table" class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>No</th>
+                                        <th>Kode Produk</th>
+                                        <th>Tujuan</th>
+                                        <th>Nominal</th>
+                                        <th>PIN</th>
+                                        <th>Status</th>
+                                        <th>Aksi</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="transaksi-tbody">
+                                    <!-- Data will be loaded here -->
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div id="empty-state" class="empty-state">
+                            <i class="fas fa-table"></i>
+                            <h4>Tidak Ada Data Transaksi</h4>
+                            <p>Import file Excel untuk menampilkan data transaksi di sini.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loading-overlay" class="loading-overlay" style="display: none;">
+        <div class="loading-spinner">
+            <i class="fas fa-spinner fa-spin"></i>
+            <p>Loading...</p>
+        </div>
+    </div>
+
+    <!-- Toast Notifications -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="js/dashboard.js"></script>
+</body>
+</html>
