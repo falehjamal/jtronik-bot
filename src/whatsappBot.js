@@ -137,19 +137,18 @@ class WhatsAppBot extends EventEmitter {
         this.sock.ev.on('creds.update', this.saveCreds);
 
         this.sock.ev.on('messages.upsert', async (m) => {
+            // Incoming message handling removed - not used in current implementation
+            // Can be re-enabled if message logging is needed in the future
             const message = m.messages[0];
             if (!message.key.fromMe && m.type === 'notify') {
-                await this.handleIncomingMessage(message);
+                console.log(`Received message from ${message.key.remoteJid}`);
             }
         });
 
+        // Contact updates handling removed - not used in current implementation
         this.sock.ev.on('contacts.update', async (contacts) => {
-            for (const contact of contacts) {
-                if (contact.id && contact.name) {
-                    const phoneNumber = contact.id.replace('@s.whatsapp.net', '');
-                    await this.db.addContact(phoneNumber, contact.name);
-                }
-            }
+            // Contact logging disabled - can be re-enabled if contact management is needed
+            console.log(`${contacts.length} contacts updated`);
         });
 
         // Handle connection errors
@@ -159,24 +158,16 @@ class WhatsAppBot extends EventEmitter {
     }
 
     async handleIncomingMessage(message) {
+        // Simplified incoming message handler - contact/message logging removed
         try {
             const phoneNumber = message.key.remoteJid.replace('@s.whatsapp.net', '');
             const messageText = message.message?.conversation || 
                               message.message?.extendedTextMessage?.text || 
                               'Media message';
-            
-            // Save message to database
-            await this.db.addMessage(phoneNumber, messageText, 'incoming', message.key.id);
-
-            // Add contact if not exists
-            const existingContact = await this.db.getContact(phoneNumber);
-            if (!existingContact) {
-                await this.db.addContact(phoneNumber);
-            }
 
             console.log(`Message from ${phoneNumber}: ${messageText}`);
 
-            // You can add auto-reply logic here
+            // Auto-reply logic can be added here if needed
             // await this.sendMessage(phoneNumber, 'Auto reply: Message received');
 
         } catch (error) {
@@ -193,55 +184,12 @@ class WhatsAppBot extends EventEmitter {
             const jid = phoneNumber.includes('@') ? phoneNumber : `${phoneNumber}@s.whatsapp.net`;
             
             const messageInfo = await this.sock.sendMessage(jid, { text: messageText });
-            
-            // Save sent message to database
-            await this.db.addMessage(phoneNumber, messageText, 'outgoing', messageInfo.key.id);
 
             console.log(`Message sent to ${phoneNumber}: ${messageText}`);
             return messageInfo;
 
         } catch (error) {
             console.error('Error sending message:', error);
-            throw error;
-        }
-    }
-
-    async sendMediaMessage(phoneNumber, mediaPath, caption = '') {
-        try {
-            if (!this.sock) {
-                throw new Error('WhatsApp socket not initialized');
-            }
-
-            const jid = phoneNumber.includes('@') ? phoneNumber : `${phoneNumber}@s.whatsapp.net`;
-            
-            const messageInfo = await this.sock.sendMessage(jid, {
-                image: { url: mediaPath },
-                caption: caption
-            });
-
-            // Save sent message to database
-            await this.db.addMessage(phoneNumber, `Image: ${caption}`, 'outgoing', messageInfo.key.id, 'image');
-
-            console.log(`Media message sent to ${phoneNumber}`);
-            return messageInfo;
-
-        } catch (error) {
-            console.error('Error sending media message:', error);
-            throw error;
-        }
-    }
-
-    async getContacts() {
-        try {
-            if (!this.sock) {
-                throw new Error('WhatsApp socket not initialized');
-            }
-
-            const contacts = await this.sock.store?.contacts || {};
-            return Object.values(contacts);
-
-        } catch (error) {
-            console.error('Error getting contacts:', error);
             throw error;
         }
     }

@@ -20,40 +20,7 @@ class Database {
     }
 
     createTables() {
-        const createContactsTable = `
-            CREATE TABLE IF NOT EXISTS contacts (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                phone_number TEXT UNIQUE NOT NULL,
-                name TEXT,
-                status TEXT DEFAULT 'active',
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-            )
-        `;
-
-        const createMessagesTable = `
-            CREATE TABLE IF NOT EXISTS messages (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                phone_number TEXT NOT NULL,
-                message_text TEXT NOT NULL,
-                message_type TEXT DEFAULT 'text',
-                direction TEXT NOT NULL, -- 'incoming' or 'outgoing'
-                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-                message_id TEXT,
-                status TEXT DEFAULT 'sent'
-            )
-        `;
-
-        const createSettingsTable = `
-            CREATE TABLE IF NOT EXISTS settings (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                key_name TEXT UNIQUE NOT NULL,
-                key_value TEXT,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-            )
-        `;
-
+        // Only keep transactions table - remove unused contacts, messages, settings tables
         const createTransactionsTable = `
             CREATE TABLE IF NOT EXISTS transactions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -70,155 +37,10 @@ class Database {
             )
         `;
 
-        this.db.serialize(() => {
-            this.db.run(createContactsTable);
-            this.db.run(createMessagesTable);
-            this.db.run(createSettingsTable);
-            this.db.run(createTransactionsTable);
-        });
+        this.db.run(createTransactionsTable);
     }
 
-    // Contact methods
-    async addContact(phoneNumber, name = null) {
-        return new Promise((resolve, reject) => {
-            const stmt = this.db.prepare(`
-                INSERT OR REPLACE INTO contacts (phone_number, name, updated_at)
-                VALUES (?, ?, CURRENT_TIMESTAMP)
-            `);
-            
-            stmt.run([phoneNumber, name], function(err) {
-                if (err) {
-                    reject(err);
-                } else {
-                    resolve(this.lastID);
-                }
-            });
-            
-            stmt.finalize();
-        });
-    }
-
-    async getContacts() {
-        return new Promise((resolve, reject) => {
-            this.db.all(`
-                SELECT * FROM contacts 
-                ORDER BY updated_at DESC
-            `, (err, rows) => {
-                if (err) {
-                    reject(err);
-                } else {
-                    resolve(rows);
-                }
-            });
-        });
-    }
-
-    async getContact(phoneNumber) {
-        return new Promise((resolve, reject) => {
-            this.db.get(`
-                SELECT * FROM contacts 
-                WHERE phone_number = ?
-            `, [phoneNumber], (err, row) => {
-                if (err) {
-                    reject(err);
-                } else {
-                    resolve(row);
-                }
-            });
-        });
-    }
-
-    // Message methods
-    async addMessage(phoneNumber, messageText, direction, messageId = null, messageType = 'text') {
-        return new Promise((resolve, reject) => {
-            const stmt = this.db.prepare(`
-                INSERT INTO messages (phone_number, message_text, message_type, direction, message_id)
-                VALUES (?, ?, ?, ?, ?)
-            `);
-            
-            stmt.run([phoneNumber, messageText, messageType, direction, messageId], function(err) {
-                if (err) {
-                    reject(err);
-                } else {
-                    resolve(this.lastID);
-                }
-            });
-            
-            stmt.finalize();
-        });
-    }
-
-    async getMessages(limit = 100) {
-        return new Promise((resolve, reject) => {
-            this.db.all(`
-                SELECT m.*, c.name as contact_name 
-                FROM messages m
-                LEFT JOIN contacts c ON m.phone_number = c.phone_number
-                ORDER BY m.timestamp DESC
-                LIMIT ?
-            `, [limit], (err, rows) => {
-                if (err) {
-                    reject(err);
-                } else {
-                    resolve(rows);
-                }
-            });
-        });
-    }
-
-    async getMessagesByContact(phoneNumber, limit = 50) {
-        return new Promise((resolve, reject) => {
-            this.db.all(`
-                SELECT * FROM messages 
-                WHERE phone_number = ?
-                ORDER BY timestamp DESC
-                LIMIT ?
-            `, [phoneNumber, limit], (err, rows) => {
-                if (err) {
-                    reject(err);
-                } else {
-                    resolve(rows);
-                }
-            });
-        });
-    }
-
-    // Settings methods
-    async setSetting(key, value) {
-        return new Promise((resolve, reject) => {
-            const stmt = this.db.prepare(`
-                INSERT OR REPLACE INTO settings (key_name, key_value, updated_at)
-                VALUES (?, ?, CURRENT_TIMESTAMP)
-            `);
-            
-            stmt.run([key, value], function(err) {
-                if (err) {
-                    reject(err);
-                } else {
-                    resolve(this.lastID);
-                }
-            });
-            
-            stmt.finalize();
-        });
-    }
-
-    async getSetting(key) {
-        return new Promise((resolve, reject) => {
-            this.db.get(`
-                SELECT key_value FROM settings 
-                WHERE key_name = ?
-            `, [key], (err, row) => {
-                if (err) {
-                    reject(err);
-                } else {
-                    resolve(row ? row.key_value : null);
-                }
-            });
-        });
-    }
-
-    // Transaction methods
+    // Transaction methods - keep only these methods
     async addTransaction(kodeProduk, tujuan, nominal, pin) {
         return new Promise((resolve, reject) => {
             const stmt = this.db.prepare(`
@@ -415,4 +237,6 @@ class Database {
     }
 }
 
-module.exports = Database;
+// Create and export database instance
+const database = new Database();
+module.exports = database;

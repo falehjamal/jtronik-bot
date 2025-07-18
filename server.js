@@ -2,7 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const QRCode = require('qrcode');
-const Database = require('./src/database');
+const db = require('./src/database');
 const WhatsAppBot = require('./src/whatsappBot');
 
 console.log('Starting Jtronik Bot Server...');
@@ -18,8 +18,7 @@ app.use(express.static('public'));
 
 console.log('Middleware configured');
 
-// Initialize database
-const db = new Database();
+// Database is already initialized via require
 console.log('Database initialized');
 
 // WhatsApp Bot instance
