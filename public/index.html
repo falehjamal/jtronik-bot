@@ -16,7 +16,8 @@
             </div>
             <nav class="sidebar-nav">
                 <ul>
-                    <li><a href="#" class="nav-link active" data-section="connection"><i class="fas fa-plug"></i> Connection</a></li>
+                    <li><a href="#" class="nav-link active" data-section="connection"><i class="fas fa-plug"></i> Whatsapp Connection</a></li>
+                    <li><a href="#" class="nav-link" data-section="jabber"><i class="fas fa-comments"></i> Jabber Connection</a></li>
                     <li><a href="#" class="nav-link" data-section="transaksi"><i class="fas fa-exchange-alt"></i> Transaksi</a></li>
                 </ul>
             </nav>
@@ -24,12 +25,6 @@
 
         <!-- Main Content -->
         <div class="main-content">
-            <div class="header">
-                <h1>Dashboard</h1>
-                <div class="status-indicator">
-                    <span id="connection-status" class="status disconnected">Disconnected</span>
-                </div>
-            </div>
 
             <!-- Connection Section -->
             <div id="connection-section" class="content-section active">
@@ -82,6 +77,81 @@
                 </div>
             </div>
 
+            <!-- Jabber Section -->
+            <div id="jabber-section" class="content-section">
+                <div class="card">
+                    <div class="card-body">
+                        <div class="connection-controls">
+                            <button id="jabber-connect-btn" class="btn btn-primary">
+                                <i class="fas fa-link"></i> Connect to Jabber
+                            </button>
+                            <button id="jabber-disconnect-btn" class="btn btn-danger" disabled>
+                                <i class="fas fa-unlink"></i> Disconnect
+                            </button>
+                            <button id="jabber-test-btn" class="btn btn-info" disabled>
+                                <i class="fas fa-paper-plane"></i> Test Connection
+                            </button>
+                            <button id="jabber-clear-config-btn" class="btn btn-warning">
+                                <i class="fas fa-trash-alt"></i> Clear Saved Config
+                            </button>
+                        </div>
+
+                        <div id="jabber-connection-info" class="connection-info" style="display: none; margin-top: 20px;">
+                            <h4><i class="fas fa-check-circle"></i> Jabber Connected!</h4>
+                            <div class="connection-details">
+                                <p><i class="fas fa-server"></i> Connected to: <span id="jabber-server-info"></span></p>
+                                <p><i class="fas fa-user"></i> Logged in as: <span id="jabber-user-info"></span></p>
+                                <p><i class="fas fa-shield-alt"></i> Connection secure and encrypted</p>
+                            </div>
+                        </div>
+                        
+                        <div class="jabber-config" style="margin-top: 20px;">
+                            <h5><i class="fas fa-cog"></i> Jabber Configuration</h5>
+                            <form id="jabber-config-form">
+                                <div class="config-grid">
+                                    <div class="form-group">
+                                        <label for="jabber-server">Jabber Server:</label>
+                                        <input type="text" id="jabber-server" class="form-control" placeholder="jabber.example.com" required>
+                                        <small class="form-text">Server Jabber/XMPP yang akan digunakan</small>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="jabber-port">Port:</label>
+                                        <input type="number" id="jabber-port" class="form-control" value="5222" min="1" max="65535" required>
+                                        <small class="form-text">Port server Jabber (default: 5222)</small>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="jabber-username">Username:</label>
+                                        <input type="text" id="jabber-username" class="form-control" placeholder="username" required>
+                                        <small class="form-text">Username untuk login ke Jabber</small>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="jabber-password">Password:</label>
+                                        <input type="password" id="jabber-password" class="form-control" placeholder="password" required>
+                                        <small class="form-text">Password untuk login ke Jabber</small>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="jabber-target">Target JID:</label>
+                                        <input type="text" id="jabber-target" class="form-control" placeholder="target@jabber.example.com">
+                                        <small class="form-text">JID tujuan untuk mengirim transaksi</small>
+                                    </div>
+                                    <div class="form-group">
+                                        <div class="form-check">
+                                            <input type="checkbox" id="jabber-ignore-ssl" class="form-check-input" checked>
+                                            <label for="jabber-ignore-ssl" class="form-check-label">
+                                                Ignore SSL Certificate Errors
+                                            </label>
+                                            <small class="form-text">Enable this for servers with expired or self-signed certificates</small>
+                                        </div>
+                                    </div>
+                                </div>
+                            </form>
+                        </div>
+
+                      
+                    </div>
+                </div>
+            </div>
+
             <!-- Transaksi Section -->
             <div id="transaksi-section" class="content-section">
                 <div class="card">
@@ -107,14 +177,36 @@
 
                         <!-- Send Configuration Form -->
                         <div class="send-config" id="send-config" style="display: none;">
-                            <h5><i class="fas fa-paper-plane"></i> Konfigurasi Pengiriman WhatsApp</h5>
+                            <h5><i class="fas fa-paper-plane"></i> Konfigurasi Pengiriman Transaksi</h5>
                             <form id="send-config-form">
                                 <div class="config-grid">
                                     <div class="form-group">
-                                        <label for="target-number">Nomor Tujuan WhatsApp:</label>
-                                        <input type="text" id="target-number" class="form-control" placeholder="628123456789" required>
-                                        <small class="form-text">Nomor WhatsApp tujuan (dengan kode negara, tanpa +)</small>
+                                        <label for="send-method">Metode Pengiriman:</label>
+                                        <select id="send-method" class="form-control" required>
+                                            <option value="whatsapp">WhatsApp</option>
+                                            <option value="jabber">Jabber/XMPP</option>
+                                        </select>
+                                        <small class="form-text">Pilih metode pengiriman transaksi</small>
                                     </div>
+                                    
+                                    <!-- WhatsApp Configuration -->
+                                    <div id="whatsapp-config" class="method-config">
+                                        <div class="form-group">
+                                            <label for="target-number">Nomor Tujuan WhatsApp:</label>
+                                            <input type="text" id="target-number" class="form-control" placeholder="628123456789">
+                                            <small class="form-text">Nomor WhatsApp tujuan (dengan kode negara, tanpa +)</small>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Jabber Configuration -->
+                                    <div id="jabber-config" class="method-config" style="display: none;">
+                                        <div class="form-group">
+                                            <label for="jabber-target-jid">Target JID:</label>
+                                            <input type="text" id="jabber-target-jid" class="form-control" placeholder="target@jabber.example.com">
+                                            <small class="form-text">JID tujuan untuk pengiriman via Jabber</small>
+                                        </div>
+                                    </div>
+                                    
                                     <div class="form-group">
                                         <label for="send-count">Jumlah Data yang Dikirim:</label>
                                         <input type="number" id="send-count" class="form-control" min="1" max="100" value="1" required>
@@ -134,7 +226,7 @@
                                 </div>
                                 <div class="send-actions">
                                     <button type="submit" class="btn btn-primary" id="send-btn">
-                                        <i class="fas fa-paper-plane"></i> Kirim ke WhatsApp
+                                        <i class="fas fa-paper-plane"></i> <span id="send-btn-text">Kirim Transaksi</span>
                                     </button>
                                     <button type="button" class="btn btn-secondary" id="reset-status-btn">
                                         <i class="fas fa-undo"></i> Reset Status

@@ -9,7 +9,10 @@ class WhatsAppBot extends EventEmitter {
         this.sock = null;
         this.authState = null;
         this.saveCreds = null;
-        this.sessionPath = path.join(__dirname, '..', 'sessions');
+        // Handle path for executable
+        const isDev = process.env.NODE_ENV !== 'production' && !process.pkg;
+        const basePath = isDev ? __dirname : path.dirname(process.execPath);
+        this.sessionPath = path.join(basePath, 'sessions');
         this.isInitializing = false;
         this.connectionAttempts = 0;
         this.maxConnectionAttempts = 3;

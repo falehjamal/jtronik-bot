@@ -854,6 +854,20 @@ body {
     margin-bottom: 20px;
 }
 
+.method-config {
+    margin: 15px 0;
+    padding: 15px;
+    background-color: #f8f9fa;
+    border-radius: 8px;
+    border: 1px solid #e9ecef;
+    transition: all 0.3s ease;
+}
+
+.method-config.active {
+    border-color: #25D366;
+    background-color: #f0fff4;
+}
+
 .message-format {
     padding: 15px;
     background-color: #f8f9fa;

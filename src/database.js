@@ -3,7 +3,11 @@ const path = require('path');
 
 class Database {
     constructor() {
-        this.dbPath = path.join(__dirname, '..', 'database', 'whatsapp_bot.db');
+        // Handle path for executable
+        const isDev = process.env.NODE_ENV !== 'production' && !process.pkg;
+        const basePath = isDev ? path.join(__dirname, '..') : path.dirname(process.execPath);
+        this.dbPath = path.join(basePath, 'database', 'whatsapp_bot.db');
+        console.log('Database path:', this.dbPath);
         this.db = null;
         this.init();
     }

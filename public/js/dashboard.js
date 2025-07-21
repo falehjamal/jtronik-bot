@@ -41,10 +41,21 @@ $(document).ready(function() {
         $('#disconnect-btn').on('click', disconnectFromWhatsApp);
         $('#clear-session-btn').on('click', clearSession);
         
+        // Jabber controls
+        $('#jabber-connect-btn').on('click', connectToJabber);
+        $('#jabber-disconnect-btn').on('click', disconnectFromJabber);
+        $('#jabber-test-btn').on('click', testJabberConnection);
+        $('#jabber-clear-config-btn').on('click', clearJabberConfig);
+        $('#jabber-send-transaction-btn').on('click', sendTransactionViaJabber);
+        $('#jabber-load-from-table-btn').on('click', loadTransactionFromTable);
+        
         // Transaksi controls
         $('#import-excel-btn').on('click', triggerFileInput);
         $('#excel-file').on('change', handleFileImport);
         $('#clear-data-btn').on('click', clearTransaksiData);
+        
+        // Send method change handler
+        $('#send-method').on('change', handleSendMethodChange);
         
         // Send configuration listeners
         $('#send-count, #target-number, #send-delay').on('input change', updateSendInfo);
@@ -54,9 +65,18 @@ $(document).ready(function() {
         switch(section) {
             case 'transaksi':
                 loadTransaksiData();
+                // Initialize send method selection
+                handleSendMethodChange();
                 break;
             case 'connection':
                 // Connection section doesn't need additional data loading
+                break;
+            case 'jabber':
+                checkJabberStatus();
+                break;
+                break;
+            case 'jabber':
+                checkJabberStatus();
                 break;
         }
     }
@@ -285,6 +305,285 @@ $(document).ready(function() {
 
     // Tambahkan event listener untuk tombol kirim
     setupSendListeners();
+
+    // Jabber Functions
+    let jabberStatus = 'disconnected';
+
+    async function checkJabberStatus() {
+        try {
+            const response = await $.get('/api/jabber/status');
+            updateJabberStatus(response.status);
+            
+            if (response.config) {
+                $('#jabber-server').val(response.config.server);
+                $('#jabber-port').val(response.config.port);
+                $('#jabber-username').val(response.config.username);
+                $('#jabber-target').val(response.config.targetJID);
+                // Also load target JID to transaction form
+                $('#jabber-target-jid').val(response.config.targetJID);
+            }
+        } catch (error) {
+            console.error('Error checking Jabber status:', error);
+            showToast('Error checking Jabber connection status', 'error');
+        }
+    }
+
+    function updateJabberStatus(status) {
+        jabberStatus = status;
+        
+        switch(status) {
+            case 'connected':
+                $('#jabber-connect-btn').prop('disabled', true);
+                $('#jabber-disconnect-btn').prop('disabled', false);
+                $('#jabber-test-btn').prop('disabled', false);
+                $('#jabber-connection-info').show();
+                $('#jabber-transaction-controls').show();
+                $('#jabber-server-info').text($('#jabber-server').val());
+                $('#jabber-user-info').text($('#jabber-username').val());
+                showToast('Jabber connected successfully!', 'success');
+                break;
+            case 'connecting':
+                $('#jabber-connect-btn').prop('disabled', true);
+                $('#jabber-disconnect-btn').prop('disabled', false);
+                $('#jabber-test-btn').prop('disabled', true);
+                $('#jabber-connection-info').hide();
+                $('#jabber-transaction-controls').hide();
+                break;
+            default:
+                $('#jabber-connect-btn').prop('disabled', false);
+                $('#jabber-disconnect-btn').prop('disabled', true);
+                $('#jabber-test-btn').prop('disabled', true);
+                $('#jabber-connection-info').hide();
+                $('#jabber-transaction-controls').hide();
+        }
+    }
+
+    async function connectToJabber() {
+        try {
+            const server = $('#jabber-server').val().trim();
+            const port = parseInt($('#jabber-port').val()) || 5222;
+            const username = $('#jabber-username').val().trim();
+            const password = $('#jabber-password').val().trim();
+            const targetJID = $('#jabber-target').val().trim();
+            const ignoreSSL = $('#jabber-ignore-ssl').is(':checked');
+
+            if (!server || !username || !password) {
+                showToast('Please fill in server, username, and password', 'error');
+                return;
+            }
+
+            showLoading();
+            updateJabberStatus('connecting');
+
+            const response = await $.ajax({
+                url: '/api/jabber/connect',
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({
+                    server,
+                    port,
+                    username,
+                    password,
+                    targetJID,
+                    ignoreSSL
+                })
+            });
+
+            if (response.success) {
+                // Start polling for connection status
+                setTimeout(() => {
+                    checkJabberStatus();
+                }, 2000);
+                showToast('Jabber connection initiated...', 'info');
+            } else {
+                updateJabberStatus('disconnected');
+                showToast(response.message || 'Failed to connect to Jabber', 'error');
+            }
+        } catch (error) {
+            console.error('Error connecting to Jabber:', error);
+            updateJabberStatus('disconnected');
+            showToast(error.responseJSON?.message || 'Error connecting to Jabber', 'error');
+        } finally {
+            hideLoading();
+        }
+    }
+
+    async function disconnectFromJabber() {
+        try {
+            showLoading();
+            
+            const response = await $.ajax({
+                url: '/api/jabber/disconnect',
+                method: 'POST'
+            });
+
+            if (response.success) {
+                updateJabberStatus('disconnected');
+                showToast('Jabber disconnected successfully', 'success');
+            } else {
+                showToast(response.message || 'Failed to disconnect from Jabber', 'error');
+            }
+        } catch (error) {
+            console.error('Error disconnecting from Jabber:', error);
+            showToast(error.responseJSON?.message || 'Error disconnecting from Jabber', 'error');
+        } finally {
+            hideLoading();
+        }
+    }
+
+    async function clearJabberConfig() {
+        try {
+            if (!confirm('Clear saved Jabber configuration? You will need to enter credentials again after restart.')) {
+                return;
+            }
+
+            showLoading();
+            
+            const response = await $.ajax({
+                url: '/api/jabber/clear-config',
+                method: 'POST'
+            });
+
+            if (response.success) {
+                updateJabberStatus('disconnected');
+                // Clear form fields
+                $('#jabber-server').val('');
+                $('#jabber-port').val('5222');
+                $('#jabber-username').val('');
+                $('#jabber-password').val('');
+                $('#jabber-target').val('');
+                showToast('Jabber configuration cleared successfully', 'success');
+            } else {
+                showToast(response.message || 'Failed to clear Jabber configuration', 'error');
+            }
+        } catch (error) {
+            console.error('Error clearing Jabber config:', error);
+            showToast(error.responseJSON?.message || 'Error clearing Jabber configuration', 'error');
+        } finally {
+            hideLoading();
+        }
+    }
+
+    async function testJabberConnection() {
+        try {
+            if (jabberStatus !== 'connected') {
+                showToast('Jabber not connected', 'error');
+                return;
+            }
+
+            const targetJID = $('#jabber-target').val().trim();
+            if (!targetJID) {
+                showToast('Please enter target JID', 'error');
+                return;
+            }
+
+            showLoading();
+
+            const response = await $.ajax({
+                url: '/api/jabber/test',
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({ targetJID })
+            });
+
+            if (response.success) {
+                showToast(response.message, 'success');
+            } else {
+                showToast(response.message || 'Test failed', 'error');
+            }
+        } catch (error) {
+            console.error('Error testing Jabber connection:', error);
+            showToast(error.responseJSON?.message || 'Error testing connection', 'error');
+        } finally {
+            hideLoading();
+        }
+    }
+
+    async function sendTransactionViaJabber() {
+        try {
+            if (jabberStatus !== 'connected') {
+                showToast('Jabber not connected', 'error');
+                return;
+            }
+
+            const targetJID = $('#jabber-target').val().trim();
+            const transactionData = $('#jabber-transaction-data').val().trim();
+
+            if (!targetJID) {
+                showToast('Please enter target JID', 'error');
+                return;
+            }
+
+            if (!transactionData) {
+                showToast('Please enter transaction data', 'error');
+                return;
+            }
+
+            showLoading();
+
+            const response = await $.ajax({
+                url: '/api/jabber/send-transaction',
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({
+                    targetJID,
+                    transactionData
+                })
+            });
+
+            if (response.success) {
+                showToast(response.message, 'success');
+                $('#jabber-transaction-data').val(''); // Clear the textarea
+            } else {
+                showToast(response.message || 'Failed to send transaction', 'error');
+            }
+        } catch (error) {
+            console.error('Error sending transaction via Jabber:', error);
+            showToast(error.responseJSON?.message || 'Error sending transaction', 'error');
+        } finally {
+            hideLoading();
+        }
+    }
+
+    function loadTransactionFromTable() {
+        if (!transaksiData || transaksiData.length === 0) {
+            showToast('No transaction data available. Please import Excel file first.', 'error');
+            return;
+        }
+
+        // Get first few transactions and format them
+        const transactionsToLoad = transaksiData.slice(0, 5); // Load first 5 transactions
+        const formattedTransactions = transactionsToLoad.map(item => 
+            `${item.kodeProduk}.${item.tujuan}.${item.nominal}.${item.pin}`
+        ).join('\n');
+
+        $('#jabber-transaction-data').val(formattedTransactions);
+        showToast(`Loaded ${transactionsToLoad.length} transactions from table`, 'success');
+    }
+
+    // Handle send method change
+    function handleSendMethodChange() {
+        const selectedMethod = $('#send-method').val();
+        
+        // Hide all method configs first
+        $('.method-config').hide();
+        
+        // Show the selected method config
+        if (selectedMethod === 'whatsapp') {
+            $('#whatsapp-config').show();
+            $('#send-btn-text').text('Kirim ke WhatsApp');
+            $('#target-number').prop('required', true);
+            $('#jabber-target-jid').prop('required', false);
+        } else if (selectedMethod === 'jabber') {
+            $('#jabber-config').show();
+            $('#send-btn-text').text('Kirim ke Jabber');
+            $('#target-number').prop('required', false);
+            $('#jabber-target-jid').prop('required', true);
+        }
+        
+        // Update send info
+        updateSendInfo();
+    }
 
     function setupSendListeners() {
         // Tombol Kirim
@@ -765,10 +1064,20 @@ $(document).ready(function() {
             return;
         }
 
-        // Validasi koneksi WhatsApp
-        if (currentStatus !== 'connected') {
-            showToast('WhatsApp belum terkoneksi. Silakan koneksi terlebih dahulu.', 'error');
-            return;
+        // Ambil metode pengiriman
+        const sendMethod = $('#send-method').val();
+        
+        // Validasi koneksi berdasarkan metode
+        if (sendMethod === 'whatsapp') {
+            if (currentStatus !== 'connected') {
+                showToast('WhatsApp belum terkoneksi. Silakan koneksi terlebih dahulu.', 'error');
+                return;
+            }
+        } else if (sendMethod === 'jabber') {
+            if (jabberStatus !== 'connected') {
+                showToast('Jabber belum terkoneksi. Silakan koneksi terlebih dahulu.', 'error');
+                return;
+            }
         }
 
         // Validasi data
@@ -777,15 +1086,24 @@ $(document).ready(function() {
             return;
         }
 
-        // Ambil konfigurasi
-        const targetNumber = $('#target-number').val().trim();
+        // Ambil konfigurasi berdasarkan metode
+        let targetDestination;
+        if (sendMethod === 'whatsapp') {
+            targetDestination = $('#target-number').val().trim();
+            if (!targetDestination) {
+                showToast('Nomor tujuan harus diisi', 'error');
+                return;
+            }
+        } else if (sendMethod === 'jabber') {
+            targetDestination = $('#jabber-target-jid').val().trim();
+            if (!targetDestination) {
+                showToast('Target JID harus diisi', 'error');
+                return;
+            }
+        }
+
         const sendCount = parseInt($('#send-count').val());
         const sendDelay = parseInt($('#send-delay').val()) || 1000;
-
-        if (!targetNumber) {
-            showToast('Nomor tujuan harus diisi', 'error');
-            return;
-        }
 
         // Validasi delay minimum
         if (sendDelay < 500) {
@@ -793,19 +1111,22 @@ $(document).ready(function() {
             return;
         }
 
-        // Validasi format nomor (harus dimulai dengan +62 atau 62)
-        const phoneRegex = /^(\+62|62|0)[\d\s\-()]+$/;
-        if (!phoneRegex.test(targetNumber)) {
-            showToast('Format nomor tidak valid. Gunakan format: +62xxx atau 62xxx', 'error');
-            return;
-        }
+        // Validasi format nomor khusus untuk WhatsApp
+        let normalizedDestination = targetDestination;
+        if (sendMethod === 'whatsapp') {
+            const phoneRegex = /^(\+62|62|0)[\d\s\-()]+$/;
+            if (!phoneRegex.test(targetDestination)) {
+                showToast('Format nomor tidak valid. Gunakan format: +62xxx atau 62xxx', 'error');
+                return;
+            }
 
-        // Normalisasi nomor
-        let normalizedNumber = targetNumber.replace(/[\s\-()]/g, '');
-        if (normalizedNumber.startsWith('0')) {
-            normalizedNumber = '62' + normalizedNumber.slice(1);
-        } else if (normalizedNumber.startsWith('+62')) {
-            normalizedNumber = normalizedNumber.slice(1);
+            // Normalisasi nomor WhatsApp
+            normalizedDestination = targetDestination.replace(/[\s\-()]/g, '');
+            if (normalizedDestination.startsWith('0')) {
+                normalizedDestination = '62' + normalizedDestination.slice(1);
+            } else if (normalizedDestination.startsWith('+62')) {
+                normalizedDestination = normalizedDestination.slice(1);
+            }
         }
 
         // Cari data yang belum terkirim (status pending atau failed)
@@ -822,8 +1143,9 @@ $(document).ready(function() {
         // Jika sendCount lebih besar dari data yang belum terkirim, kirim semua yang belum terkirim
         const dataToSend = unsentData.slice(0, Math.min(sendCount, unsentData.length));
         
-        // Konfirmasi
-        const confirmMessage = `Kirim ${dataToSend.length} data transaksi yang belum terkirim ke ${targetNumber}?\n\n` +
+        // Konfirmasi berdasarkan metode
+        const methodText = sendMethod === 'whatsapp' ? 'WhatsApp' : 'Jabber';
+        const confirmMessage = `Kirim ${dataToSend.length} data transaksi yang belum terkirim via ${methodText} ke ${normalizedDestination}?\n\n` +
                               `Total belum terkirim: ${unsentData.length} data\n` +
                               `Akan dikirim: ${dataToSend.length} data`;
         
@@ -868,37 +1190,51 @@ $(document).ready(function() {
                 displayTransaksiData();
                 
                 // Update status di database
-                await updateTransactionStatusInDatabase(item.id, 'sending', normalizedNumber);
+                await updateTransactionStatusInDatabase(item.id, 'sending', normalizedDestination);
 
                 // Format pesan
                 const message = `${item.kodeProduk}.${item.tujuan}.${item.nominal}.${item.pin}`;
 
                 try {
-                    // Kirim pesan
-                    const response = await $.ajax({
-                        url: '/api/send-message',
-                        method: 'POST',
-                        contentType: 'application/json',
-                        data: JSON.stringify({
-                            number: normalizedNumber,
-                            message: message
-                        })
-                    });
+                    let response;
+                    
+                    // Kirim berdasarkan metode yang dipilih
+                    if (sendMethod === 'whatsapp') {
+                        response = await $.ajax({
+                            url: '/api/send-message',
+                            method: 'POST',
+                            contentType: 'application/json',
+                            data: JSON.stringify({
+                                number: normalizedDestination,
+                                message: message
+                            })
+                        });
+                    } else if (sendMethod === 'jabber') {
+                        response = await $.ajax({
+                            url: '/api/jabber/send-transaction',
+                            method: 'POST',
+                            contentType: 'application/json',
+                            data: JSON.stringify({
+                                targetJID: normalizedDestination,
+                                transactionData: message
+                            })
+                        });
+                    }
 
-                    if (response.success) {
+                    if (response && response.success) {
                         item.status = 'sent';
                         successCount++;
-                        await updateTransactionStatusInDatabase(item.id, 'sent', normalizedNumber);
+                        await updateTransactionStatusInDatabase(item.id, 'sent', normalizedDestination);
                     } else {
                         item.status = 'failed';
                         failedCount++;
-                        await updateTransactionStatusInDatabase(item.id, 'failed', normalizedNumber, response.message);
+                        await updateTransactionStatusInDatabase(item.id, 'failed', normalizedDestination, response?.message || 'Send failed');
                     }
                 } catch (error) {
-                    console.error('Error sending message:', error);
+                    console.error(`Error sending via ${sendMethod}:`, error);
                     item.status = 'failed';
                     failedCount++;
-                    await updateTransactionStatusInDatabase(item.id, 'failed', normalizedNumber, error.responseJSON?.message || error.message);
+                    await updateTransactionStatusInDatabase(item.id, 'failed', normalizedDestination, error.responseJSON?.message || error.message);
                 }
 
                 // Update display
@@ -918,7 +1254,8 @@ $(document).ready(function() {
 
             // Tampilkan hasil
             if (sendingInProgress) {
-                const resultMessage = `Pengiriman selesai. Berhasil: ${successCount}, Gagal: ${failedCount}` +
+                const methodText = sendMethod === 'whatsapp' ? 'WhatsApp' : 'Jabber';
+                const resultMessage = `Pengiriman via ${methodText} selesai. Berhasil: ${successCount}, Gagal: ${failedCount}` +
                                     (remainingUnsent > 0 ? `\nData yang belum terkirim: ${remainingUnsent}` : '\nSemua data sudah terkirim!');
                 showToast(resultMessage, 'info');
             } else {
@@ -931,7 +1268,9 @@ $(document).ready(function() {
         } finally {
             // Reset UI
             sendingInProgress = false;
-            $('#send-btn').prop('disabled', false).text('Kirim ke WhatsApp');
+            const buttonText = sendMethod === 'whatsapp' ? 'Kirim ke WhatsApp' : 'Kirim ke Jabber';
+            $('#send-btn').prop('disabled', false);
+            $('#send-btn-text').text(buttonText.replace(/Kirim ke /, ''));
             hideProgress();
             
             // Update count dan info setelah pengiriman selesai
